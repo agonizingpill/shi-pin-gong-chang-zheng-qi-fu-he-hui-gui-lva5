@@ -11,8 +11,8 @@
 | 角色 | 主要工位 | 典型动作 |
 | --- | --- | --- |
 | `operator` 值班员 | 班次采集、负荷估计 | 登记班次、逐小时抄表、录入启停、封账、提交估计 |
-| `supervisor` 能源主管 | 班次采集、负荷估计、节能复核 | 值班员权限、带理由更正启停、审批、逐条核验、签署结案、查审计 |
-| `viewer` 只读访客 | 三个业务工位 | 查阅台账、结果和复核单，下载估计证据 |
+| `supervisor` 能源主管 | 班次采集、负荷估计、节能复核、月度结算 | 值班员权限、带理由更正启停、审批、逐条核验、签署结案、月结关账、查审计 |
+| `viewer` 只读访客 | 四个业务工位 | 查阅台账、结果、复核单和结算明细，下载估计证据 |
 
 ## 启动
 
@@ -56,6 +56,19 @@ docker compose exec -T backend python -m scripts.seed_demo
 - Huber 对大残差采用线性惩罚。历史和目标班中，正向偏差达到 `max(60 kg, epsilon × scale_)` 的小时进入人工核验。复核单保存首末读数的外键、来源、判断、备注、核验者和时间。疑似仪表问题也保留原始值。
 - 实耗减基线是同工况的耗汽偏差。结案记录具体处置，供下一班核对。输入快照、SHA-256、参数、样本数、留出指标及估计曲线都随方案留存。
 
+## 月度节能量结算
+
+财务按**获批基线**逐小时结算班组节能量：`节能量 = 基线 kg − 实耗 kg`，实耗高于基线的小时以负数冲减。每个目标班小时按**小时开始时间**归入自然月，跨月班因此可能拆到两个月。
+
+| 时点 | 动作 |
+| --- | --- |
+| 方案审批 | 为目标班每小时建立一条结算明细；目标班待核尖峰小时先挂账，其余小时立即入账。历史班尖峰不进入本期结算。 |
+| 复核结案 | `instrument_suspect`（疑似仪表异常）小时排除，保留原始读数；其余挂账小时转入其归属月。 |
+| 月结关账 | 能源主管选择月份关账。明细已按小时持久化，关账本身只冻结口径，不重新计算，中断后重试也不会重复入账。 |
+| 并发结案与月结 | 入账与关账通过月份行锁串行化。归属月已关账的差额转入下一个开放月，已关账金额不回写、不追溯。 |
+
+结算页面（`月度结算` 工位和 `/settlements` API）按小时展示实耗、基线、节能量、归属月与入账月，并列出首末累计读数的原始来源，作为基线和抄表依据。月份键为 `YYYY-MM`，归属月与入账月不同的小时标为「顺延」。
+
 ## 工程结构
 
 | 服务 | 实现 | 健康检查 |
@@ -66,7 +79,7 @@ docker compose exec -T backend python -m scripts.seed_demo
 | db | MySQL 8.0 | 应用账号执行 `SELECT 1` |
 | redis | Redis 7 | `PING` |
 
-`backend/src` 的 `models.py` 声明实体，`schemas.py` 校验输入，`shift_work.py` 和 `planning.py` 承担领域规则，`steam_model.py` 完成拟合。`routes.py` 和 `views.py` 暴露 API，`worker.py` 消费队列，`migrations/initial.py` 初始化当前版本的表。`frontend/src` 按 API、会话状态、复用组件与页面拆分。Nginx 代理 `/api/`，MySQL、Redis 和估计证据各用独立命名卷。任务先提交到 MySQL，再用 Redis 唤醒 worker，丢失唤醒时由 worker 轮询，进程中断可在租约超时后重领。
+`backend/src` 的 `models.py` 声明实体，`schemas.py` 校验输入，`shift_work.py`、`planning.py` 和 `settlement.py` 承担领域规则，`steam_model.py` 完成拟合。`routes.py` 和 `views.py` 暴露 API，`worker.py` 消费队列，`migrations/initial.py` 初始化当前版本的表。`frontend/src` 按 API、会话状态、复用组件与页面拆分。Nginx 代理 `/api/`，MySQL、Redis 和估计证据各用独立命名卷。任务先提交到 MySQL，再用 Redis 唤醒 worker，丢失唤醒时由 worker 轮询，进程中断可在租约超时后重领。
 
 | 环境变量 | 用途 |
 | --- | --- |

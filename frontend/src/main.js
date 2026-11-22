@@ -4,12 +4,13 @@ import {notice, shell} from './components/ui.js';
 import {loginPage} from './pages/login.js';
 import {plansPage} from './pages/plans.js';
 import {reviewsPage} from './pages/reviews.js';
+import {settlementsPage} from './pages/settlements.js';
 import {shiftsPage} from './pages/shifts.js';
 import {setSession, store} from './store.js';
 import {busyPlan} from './utils.js';
 
 const app = document.querySelector('#app');
-const valid = ['shifts', 'plans', 'reviews'];
+const valid = ['shifts', 'plans', 'reviews', 'settlements'];
 const demo = {operator: 'SteamOps1064!', supervisor: 'SteamLead1064!', viewer: 'SteamView1064!'};
 let renderVersion = 0;
 let poll;
@@ -28,14 +29,17 @@ async function render() {
   const role = store.user.role;
   try {
     const [list, roster] = await Promise.all([api(`/${route}`), route === 'plans' ? api('/shifts') : Promise.resolve([])]);
-    const selected = (/^[1-9]\d*$/.test(rawId || '') ? Number(rawId) : null) || list[0]?.id;
+    const identified = route === 'settlements' ? list.map(item => ({...item, id: item.month_key})) : list;
+    const selected = route === 'settlements'
+      ? (rawId && /^\d{4}-\d{2}$/.test(rawId) ? rawId : identified[0]?.id)
+      : ((/^[1-9]\d*$/.test(rawId || '') ? Number(rawId) : null) || identified[0]?.id);
     const detail = selected ? await api(`/${route}/${selected}`) : null;
     if (version !== renderVersion) return;
-    store.lists[route] = list;
+    store.lists[route] = identified;
     store.detail[route] = detail;
     if (route === 'plans') store.lists.shifts = roster;
     const content = {
-      shifts: shiftsPage, plans: plansPage, reviews: reviewsPage,
+      shifts: shiftsPage, plans: plansPage, reviews: reviewsPage, settlements: settlementsPage,
     }[route](store.lists[route], store.detail[route], role, roster,
       Number(new URLSearchParams(location.search).get('shift')));
     app.innerHTML = shell(route, store.user, content);

@@ -25,6 +25,17 @@ class ReviewState(StrEnum):
     CLOSED = 'closed'
 
 
+class PeriodState(StrEnum):
+    OPEN = 'open'
+    CLOSED = 'closed'
+
+
+class SettlementState(StrEnum):
+    BOOKED = 'booked'
+    HELD = 'held'
+    EXCLUDED = 'excluded'
+
+
 class SpikeFinding(StrEnum):
     PROCESS_SURGE = 'process_surge'
     INSTRUMENT_SUSPECT = 'instrument_suspect'

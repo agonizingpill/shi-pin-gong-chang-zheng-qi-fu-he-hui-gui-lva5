@@ -65,3 +65,7 @@ class VerifySpike(Form):
 class CloseReview(Form):
     conclusion: Reason
     follow_up: Reason
+
+
+class CloseMonth(Form):
+    note: Reason

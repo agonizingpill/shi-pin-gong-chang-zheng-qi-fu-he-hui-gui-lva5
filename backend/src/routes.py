@@ -2,12 +2,14 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import FileResponse
 from sqlalchemy import select, text
 
-from . import planning, shift_work
+from . import planning, settlement, shift_work
 from .auth import DomainError, allow, current_user, login
 from .config import ARTIFACT_DIR, Session, engine, redis
 from .constants import Role
 from .models import AuditEntry, EnergyReview, LoadPlan, ProductionShift
-from .schemas import CloseReview, CorrectRun, Login, OpenShift, RecordReading, RecordRun, RequestPlan, VerifySpike
+from .schemas import (
+    CloseMonth, CloseReview, CorrectRun, Login, OpenShift, RecordReading, RecordRun, RequestPlan, VerifySpike,
+)
 from .views import fields, meter_view, plan_view, review_view, run_view, shift_view, user_view
 
 router = APIRouter()
@@ -159,6 +161,25 @@ def close(review_id: int, data: CloseReview, user=Depends(supervisor)):
     with Session.begin() as db:
         review = planning.get_review(db, review_id, lock=True)
         return review_view(db, planning.close_review(db, review, data, user))
+
+
+@router.get('/settlements')
+def settlements(_user=Depends(current_user)):
+    with Session() as db:
+        return settlement.list_months(db)
+
+
+@router.get('/settlements/{month_key}')
+def settlement_month(month_key: str, _user=Depends(current_user)):
+    with Session() as db:
+        return settlement.month_view(db, month_key)
+
+
+@router.post('/settlements/{month_key}/close', status_code=201)
+def close_settlement(month_key: str, data: CloseMonth, user=Depends(supervisor)):
+    with Session.begin() as db:
+        settlement.close_month(db, month_key, data, user)
+        return settlement.month_view(db, settlement.normalize_month(month_key))
 
 
 @router.get('/audit')

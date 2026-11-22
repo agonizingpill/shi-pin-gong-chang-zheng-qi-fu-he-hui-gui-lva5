@@ -5,7 +5,9 @@ from sqlalchemy import CheckConstraint, ForeignKey, Index, JSON, Numeric, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from .config import utc_now
-from .constants import Equipment, Line, PlanState, ReviewState, Role, ShiftState, SpikeFinding
+from .constants import (
+    Equipment, Line, PeriodState, PlanState, ReviewState, Role, SettlementState, ShiftState, SpikeFinding,
+)
 
 
 class Base(DeclarativeBase):
@@ -139,3 +141,44 @@ class AuditEntry(Base):
     object_ref: Mapped[str] = mapped_column(String(128))
     details: Mapped[dict] = mapped_column(JSON)
     at: Mapped[datetime] = mapped_column(default=utc_now)
+
+
+class SettlementPeriod(Base):
+    __tablename__ = 'settlement_periods'
+    __table_args__ = (
+        UniqueConstraint('month_key'), choices('state', PeriodState),
+        CheckConstraint('length(month_key) = 7'),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    month_key: Mapped[str] = mapped_column(String(7))
+    state: Mapped[str] = mapped_column(String(12), default=PeriodState.OPEN)
+    opened_at: Mapped[datetime] = mapped_column(default=utc_now)
+    closed_by: Mapped[int | None] = mapped_column(ForeignKey('users.id'))
+    closed_at: Mapped[datetime | None]
+    close_note: Mapped[str | None] = mapped_column(Text)
+
+
+class SettlementHour(Base):
+    __tablename__ = 'settlement_hours'
+    __table_args__ = (
+        UniqueConstraint('plan_id', 'hour_start'), choices('state', SettlementState),
+        Index('ix_settlement_hour_booked', 'booked_period', 'state'),
+        Index('ix_settlement_hour_attribution', 'attribution_month', 'state'),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    plan_id: Mapped[int] = mapped_column(ForeignKey('load_plans.id'))
+    shift_id: Mapped[int] = mapped_column(ForeignKey('production_shifts.id'))
+    hour_start: Mapped[datetime]
+    attribution_month: Mapped[str] = mapped_column(String(7))
+    booked_period: Mapped[str | None] = mapped_column(String(7))
+    state: Mapped[str] = mapped_column(String(12), default=SettlementState.HELD)
+    observed_kg: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    baseline_kg: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    amount_kg: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    start_read_id: Mapped[int] = mapped_column(ForeignKey('steam_meter_reads.id'))
+    end_read_id: Mapped[int] = mapped_column(ForeignKey('steam_meter_reads.id'))
+    spike_id: Mapped[int | None] = mapped_column(ForeignKey('review_spikes.id'))
+    booked_at: Mapped[datetime | None]
+    excluded_by: Mapped[int | None] = mapped_column(ForeignKey('users.id'))
+    excluded_at: Mapped[datetime | None]
+    exclusion_note: Mapped[str | None] = mapped_column(Text)

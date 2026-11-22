@@ -1,6 +1,7 @@
 from redis.exceptions import RedisError
 from sqlalchemy import select
 
+from . import settlement
 from .auth import DomainError
 from .config import QUEUE, redis, utc_now
 from .constants import PlanState, ReviewState, ShiftState
@@ -63,6 +64,8 @@ def approve_plan(db, plan, user):
     for flag in plan.result['spikes']:
         db.add(ReviewSpike(review_id=review.id, sample_scope=flag['scope'],
                            **{key: flag[key] for key in ('start_read_id', 'end_read_id', 'observed_kg', 'baseline_kg')}))
+    db.flush()
+    settlement.book_plan(db, plan, review, user)
     audit(db, user.username, 'plan.approved', plan.id, review_id=review.id, spike_count=len(plan.result['spikes']))
     return review
 
@@ -105,6 +108,7 @@ def close_review(db, review, data, user):
     pending = [spike.id for spike in get_spikes(db, review.id) if spike.finding is None]
     if pending:
         raise DomainError('spikes_unverified', '先核验所有尖峰记录，才能关闭节能复核单', spike_ids=pending)
+    settlement.resolve_review(db, review, user)
     review.state, review.closed_at, review.closed_by = ReviewState.CLOSED, utc_now(), user.id
     review.conclusion, review.follow_up = data.conclusion, data.follow_up
     audit(db, user.username, 'review.closed', review.id, conclusion=data.conclusion, follow_up=data.follow_up)
